@@ -390,10 +390,14 @@ impl<'a> InvokeContext for ThisInvokeContext<'a> {
     }
     fn verify_and_update(
         &mut self,
-        message: &Message,
         instruction: &CompiledInstruction,
+<<<<<<< HEAD
         accounts: &[Rc<RefCell<AccountSharedData>>],
         caller_write_privileges: Option<&[bool]>,
+=======
+        accounts: &[(Pubkey, Rc<RefCell<AccountSharedData>>)],
+        write_privileges: &[bool],
+>>>>>>> 72da25e9d (Refactor verify_and_update write privileges check (#18468))
     ) -> Result<(), InstructionError> {
         let stack_frame = self
             .invoke_stack
@@ -401,13 +405,12 @@ impl<'a> InvokeContext for ThisInvokeContext<'a> {
             .ok_or(InstructionError::CallDepth)?;
         let logger = self.get_logger();
         MessageProcessor::verify_and_update(
-            message,
             instruction,
             &mut self.pre_accounts,
             accounts,
             &stack_frame.key,
             &self.rent,
-            caller_write_privileges,
+            write_privileges,
             &mut self.timings,
             logger,
         )
@@ -922,12 +925,7 @@ impl MessageProcessor {
             let program_id = instruction.program_id(&message.account_keys);
 
             // Verify the calling program hasn't misbehaved
-            invoke_context.verify_and_update(
-                message,
-                instruction,
-                accounts,
-                Some(caller_write_privileges),
-            )?;
+            invoke_context.verify_and_update(instruction, accounts, caller_write_privileges)?;
 
             // Construct keyed accounts
             let keyed_accounts =
@@ -948,7 +946,10 @@ impl MessageProcessor {
             );
             if result.is_ok() {
                 // Verify the called program has not misbehaved
-                result = invoke_context.verify_and_update(message, instruction, accounts, None);
+                let write_privileges: Vec<bool> = (0..message.account_keys.len())
+                    .map(|i| message.is_writable(i))
+                    .collect();
+                result = invoke_context.verify_and_update(instruction, accounts, &write_privileges);
             }
 
             // Restore previous state
@@ -1053,19 +1054,19 @@ impl MessageProcessor {
     /// Verify the results of a cross-program instruction
     #[allow(clippy::too_many_arguments)]
     fn verify_and_update(
-        message: &Message,
         instruction: &CompiledInstruction,
         pre_accounts: &mut [PreAccount],
         accounts: &[Rc<RefCell<AccountSharedData>>],
         program_id: &Pubkey,
         rent: &Rent,
-        caller_write_privileges: Option<&[bool]>,
+        write_privileges: &[bool],
         timings: &mut ExecuteDetailsTimings,
         logger: Rc<RefCell<dyn Logger>>,
     ) -> Result<(), InstructionError> {
         // Verify the per-account instruction results
         let (mut pre_sum, mut post_sum) = (0_u128, 0_u128);
         let mut work = |_unique_index: usize, account_index: usize| {
+<<<<<<< HEAD
             if account_index < message.account_keys.len() && account_index < accounts.len() {
                 let key = &message.account_keys[account_index];
                 let account = &accounts[account_index];
@@ -1074,6 +1075,11 @@ impl MessageProcessor {
                 } else {
                     message.is_writable(account_index)
                 };
+=======
+            if account_index < write_privileges.len() && account_index < accounts.len() {
+                let (key, account) = &accounts[account_index];
+                let is_writable = write_privileges[account_index];
+>>>>>>> 72da25e9d (Refactor verify_and_update write privileges check (#18468))
                 // Find the matching PreAccount
                 for pre_account in pre_accounts.iter_mut() {
                     if key == pre_account.key() {
@@ -1322,13 +1328,27 @@ mod tests {
             accounts[owned_index].borrow_mut().data_as_mut_slice()[0] =
                 (MAX_DEPTH + owned_index) as u8;
             let mut these_accounts = accounts[not_owned_index..owned_index + 1].to_vec();
+<<<<<<< HEAD
             these_accounts.push(Rc::new(RefCell::new(AccountSharedData::new(
                 1,
                 1,
                 &solana_sdk::pubkey::Pubkey::default(),
             ))));
+=======
+            these_accounts.push((
+                message.account_keys[2],
+                Rc::new(RefCell::new(AccountSharedData::new(
+                    1,
+                    1,
+                    &solana_sdk::pubkey::Pubkey::default(),
+                ))),
+            ));
+            let write_privileges: Vec<bool> = (0..message.account_keys.len())
+                .map(|i| message.is_writable(i))
+                .collect();
+>>>>>>> 72da25e9d (Refactor verify_and_update write privileges check (#18468))
             invoke_context
-                .verify_and_update(&message, &message.instructions[0], &these_accounts, None)
+                .verify_and_update(&message.instructions[0], &these_accounts, &write_privileges)
                 .unwrap();
             assert_eq!(
                 invoke_context.pre_accounts[owned_index]
@@ -1344,10 +1364,9 @@ mod tests {
                 (MAX_DEPTH + not_owned_index) as u8;
             assert_eq!(
                 invoke_context.verify_and_update(
-                    &message,
                     &message.instructions[0],
                     &accounts[not_owned_index..owned_index + 1],
-                    None
+                    &write_privileges,
                 ),
                 Err(InstructionError::ExternalAccountDataModified)
             );
